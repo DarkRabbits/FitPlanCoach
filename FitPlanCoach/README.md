@@ -1,5 +1,7 @@
 # FitPlanCoach
 
+> 仓库根目录 `README.md` 是公开发布说明；这里保留一份项目内说明，方便从 Xcode 工程目录查看。
+
 FitPlanCoach 是一个 SwiftUI + HealthKit iPhone App：
 
 - 每次打开 App 自动请求/读取健康 App 中最新体重和体脂率。
