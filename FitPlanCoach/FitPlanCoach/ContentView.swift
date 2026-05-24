@@ -13,14 +13,20 @@ struct ContentView: View {
     @State private var selectedMeal: Meal = .breakfast
     @State private var food = ""
     @State private var useAIParsing = false
-    @State private var aiPlan: GymPlan?
     @State private var targetDate = Calendar.current.date(byAdding: .month, value: 3, to: Date()) ?? Date()
     @State private var targetWeight = ""
     @State private var targetBodyFat = ""
     @State private var loadedGoalDraft = false
 
     private var plan: GymPlan {
-        aiPlan ?? localPlan
+        activeSavedPlan ?? localPlan
+    }
+
+    private var activeSavedPlan: GymPlan? {
+        guard let saved = store.todaySavedWorkoutPlan, saved.split == selectedSplit else {
+            return nil
+        }
+        return saved.plan
     }
 
     private var localPlan: GymPlan {
@@ -53,6 +59,7 @@ struct ContentView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("今日健身计划")
             .task {
+                restoreSavedWorkoutPlan()
                 await refreshHealthData()
             }
         }
@@ -191,7 +198,9 @@ struct ContentView: View {
             }
             .pickerStyle(.menu)
             .onChange(of: selectedSplit) { _, _ in
-                aiPlan = nil
+                if store.todaySavedWorkoutPlan?.split != selectedSplit {
+                    store.clearSavedWorkoutPlan()
+                }
             }
 
             Button {
@@ -203,7 +212,7 @@ struct ContentView: View {
             .buttonStyle(.bordered)
             .disabled(!DeepSeekConfig.hasAPIKey || isGeneratingPlan)
 
-            Text(aiPlan == nil ? "当前为本地动态计划：已参考今日食谱、身体数据变化和目标。" : "当前为 DeepSeek AI 计划：已参考今日食谱、身体数据变化和目标。")
+            Text(activeSavedPlan == nil ? "当前为本地动态计划：已参考今日食谱、身体数据变化和目标。" : "当前为 DeepSeek AI 计划：已保存，今天再次打开会保留。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -309,7 +318,7 @@ struct ContentView: View {
                             .monospacedDigit()
                         Button {
                             store.deleteDietEntry(id: entry.id)
-                            aiPlan = nil
+                            store.clearSavedWorkoutPlan()
                         } label: {
                             Image(systemName: "trash")
                         }
@@ -591,7 +600,12 @@ struct ContentView: View {
         store.addDietEntry(entry)
 
         food = ""
-        aiPlan = nil
+        store.clearSavedWorkoutPlan()
+    }
+
+    private func restoreSavedWorkoutPlan() {
+        guard let saved = store.todaySavedWorkoutPlan else { return }
+        selectedSplit = saved.split
     }
 
     private func loadGoalDraftIfNeeded() {
@@ -612,7 +626,7 @@ struct ContentView: View {
             updatedAt: Date()
         )
         store.updateBodyGoal(goal)
-        aiPlan = nil
+        store.clearSavedWorkoutPlan()
         message = "目标已保存，今日训练计划会参考这个目标。"
     }
 
@@ -621,7 +635,7 @@ struct ContentView: View {
         targetDate = Calendar.current.date(byAdding: .month, value: 3, to: Date()) ?? Date()
         targetWeight = ""
         targetBodyFat = ""
-        aiPlan = nil
+        store.clearSavedWorkoutPlan()
         message = "目标已清除。"
     }
 
@@ -635,14 +649,15 @@ struct ContentView: View {
         defer { isGeneratingPlan = false }
 
         do {
-            aiPlan = try await DeepSeekWorkoutClient().makePlan(
+            let generatedPlan = try await DeepSeekWorkoutClient().makePlan(
                 split: selectedSplit,
                 current: store.currentMetrics,
                 previous: store.previousMetrics,
                 goal: store.bodyGoal,
                 dietEntries: store.todayDietEntries
             )
-            message = "已用 DeepSeek 生成今日训练计划。"
+            store.saveWorkoutPlan(generatedPlan, split: selectedSplit)
+            message = "已用 DeepSeek 生成今日训练计划，并保存为今天的计划。"
         } catch {
             message = "\(error.localizedDescription) 当前仍可使用本地动态计划。"
         }
@@ -656,8 +671,10 @@ struct ContentView: View {
         do {
             try await health.requestAuthorization()
             let metrics = try await health.fetchLatestBodyMetrics()
-            store.ingest(metrics: metrics)
-            aiPlan = nil
+            let didChange = store.ingest(metrics: metrics)
+            if didChange {
+                store.clearSavedWorkoutPlan()
+            }
             message = "已读取最新健康数据。"
         } catch {
             message = error.localizedDescription

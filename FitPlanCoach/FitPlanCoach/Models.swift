@@ -143,7 +143,14 @@ struct DailyEnergySummary: Codable, Equatable {
     }
 }
 
-struct GymPlan: Equatable {
+struct SavedWorkoutPlan: Codable, Equatable {
+    var date: Date
+    var createdAt: Date
+    var split: WorkoutSplit
+    var plan: GymPlan
+}
+
+struct GymPlan: Codable, Equatable {
     var title: String
     var intent: String
     var split: WorkoutSplit?
@@ -156,13 +163,13 @@ struct GymPlan: Equatable {
     }
 }
 
-struct PlanBlock: Identifiable, Equatable {
+struct PlanBlock: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
     var detail: String
 }
 
-struct PlanExercise: Identifiable, Equatable {
+struct PlanExercise: Identifiable, Codable, Equatable {
     var id = UUID()
     var name: String
     var equipment: String

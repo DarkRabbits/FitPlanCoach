@@ -7,6 +7,7 @@ final class LocalStore: ObservableObject {
     @Published private(set) var dietEntries: [DietEntry] = []
     @Published private(set) var latestEnergySummary: DailyEnergySummary?
     @Published private(set) var bodyGoal: BodyGoal?
+    @Published private(set) var savedWorkoutPlan: SavedWorkoutPlan?
 
     private let defaults = UserDefaults.standard
     private let encoder = JSONEncoder()
@@ -18,6 +19,7 @@ final class LocalStore: ObservableObject {
         static let dietEntries = "dietEntries"
         static let latestEnergySummary = "latestEnergySummary"
         static let bodyGoal = "bodyGoal"
+        static let savedWorkoutPlan = "savedWorkoutPlan"
     }
 
     init() {
@@ -26,6 +28,12 @@ final class LocalStore: ObservableObject {
         dietEntries = load([DietEntry].self, key: Key.dietEntries) ?? []
         latestEnergySummary = load(DailyEnergySummary.self, key: Key.latestEnergySummary)
         bodyGoal = load(BodyGoal.self, key: Key.bodyGoal)
+        savedWorkoutPlan = load(SavedWorkoutPlan.self, key: Key.savedWorkoutPlan)
+
+        if let savedWorkoutPlan, !Calendar.current.isDateInToday(savedWorkoutPlan.date) {
+            self.savedWorkoutPlan = nil
+            save(Optional<SavedWorkoutPlan>.none, key: Key.savedWorkoutPlan)
+        }
     }
 
     var todayDietEntries: [DietEntry] {
@@ -38,7 +46,17 @@ final class LocalStore: ObservableObject {
         todayDietEntries.reduce(0) { $0 + $1.calories }
     }
 
-    func ingest(metrics: BodyMetrics) {
+    var todaySavedWorkoutPlan: SavedWorkoutPlan? {
+        guard let savedWorkoutPlan, Calendar.current.isDateInToday(savedWorkoutPlan.date) else {
+            return nil
+        }
+        return savedWorkoutPlan
+    }
+
+    @discardableResult
+    func ingest(metrics: BodyMetrics) -> Bool {
+        let previousFingerprint = currentMetrics?.fingerprint
+
         if let currentMetrics {
             if currentMetrics.fingerprint != metrics.fingerprint {
                 previousMetrics = currentMetrics
@@ -52,6 +70,8 @@ final class LocalStore: ObservableObject {
 
         save(currentMetrics, key: Key.currentMetrics)
         save(previousMetrics, key: Key.previousMetrics)
+
+        return previousFingerprint != metrics.fingerprint
     }
 
     func addDietEntry(_ entry: DietEntry) {
@@ -83,6 +103,17 @@ final class LocalStore: ObservableObject {
     func clearBodyGoal() {
         bodyGoal = nil
         save(Optional<BodyGoal>.none, key: Key.bodyGoal)
+    }
+
+    func saveWorkoutPlan(_ plan: GymPlan, split: WorkoutSplit) {
+        let saved = SavedWorkoutPlan(date: Date(), createdAt: Date(), split: split, plan: plan)
+        savedWorkoutPlan = saved
+        save(saved, key: Key.savedWorkoutPlan)
+    }
+
+    func clearSavedWorkoutPlan() {
+        savedWorkoutPlan = nil
+        save(Optional<SavedWorkoutPlan>.none, key: Key.savedWorkoutPlan)
     }
 
     private func save<T: Encodable>(_ value: T?, key: String) {
